@@ -87,7 +87,7 @@ Create a VLESS inbound:
 ## Client config
 
 ```
-vless://YOUR-UUID@relay.your-domain.com:443?encryption=none&security=tls&sni=relay.your-domain.com&fp=chrome&alpn=h2%2Chttp%2F1.1&type=xhttp&host=relay.your-domain.com&path=%2Fyour-path&mode=auto#vercel-relay
+vless://YOUR-UUID@vercel.com:443?encryption=none&security=tls&sni=vercel.com&fp=chrome&alpn=h2%2Chttp%2F1.1&type=xhttp&host=relay.your-domain.com&path=%2Fyour-path&mode=auto#EazyVercel
 ```
 
 ## Compatible clients
