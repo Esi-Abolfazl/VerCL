@@ -1,4 +1,4 @@
-# vercel-xhttp-relay
+# EazyVercel
 
 A minimal **Vercel Edge Function** that relays **XHTTP** traffic to your
 backend Xray/V2Ray server. Use Vercel's globally distributed edge network
@@ -12,6 +12,15 @@ is reachable.
 > doesn't support WebSocket upgrade or arbitrary TCP, and the other
 > transports rely on protocol features Edge `fetch` doesn't expose.
 
+## 📢 Author & Channel
+
+Built and maintained by **Schmitz**.
+
+- Telegram: [@schmi7zz](https://t.me/schmi7zz)
+- Channel: [t.me/schmitzws](https://t.me/schmitzws)
+
+For questions, updates, and bonus configs join the channel.
+
 ## Disclaimer
 
 **This repository is for education, experimentation, and personal testing
@@ -23,7 +32,7 @@ audit, no ongoing maintenance guarantee, and no support channel.
   assured. You deploy and operate it **entirely at your own risk**.
 - **Compliance is your responsibility.** Laws, regulations, and acceptable
   use policies (including your host's and Vercel's) vary by jurisdiction
-  and service. The authors and contributors are **not** responsible for how
+  and service. The author and contributors are **not** responsible for how
   you use this code or for any damages, losses, or legal consequences that
   arise from it.
 - **Vercel's terms of service** apply to anything you run on their
@@ -31,7 +40,7 @@ audit, no ongoing maintenance guarantee, and no support channel.
   if misused; read and follow [Vercel's policies](https://vercel.com/legal)
   yourself.
 - **No warranty.** The software is provided "as is", without warranty of
-  any kind, express or implied. The authors accept no liability for its
+  any kind, express or implied. The author accepts no liability for its
   use or misuse.
 
 If you need something production-grade, build or buy a properly engineered
@@ -44,8 +53,8 @@ solution with monitoring, hardening, legal review, and operational ownership.
 ```
 ┌──────────┐   TLS / SNI: *.vercel.app    ┌──────────────────┐    HTTP/2     ┌──────────────┐
 │  Client  │ ───────────────────────────► │  Vercel Edge     │ ───────────►  │  Your Xray   │
-│ (v2rayN, │   XHTTP request (POST/GET)   │  (V8 isolate,    │  XHTTP frames │  server with │
-│ xray-core│                              │  streams body)   │  forwarded    │ XHTTP inbound│
+│ (v2rayNG,│   XHTTP request (POST/GET)   │  (V8 isolate,    │  XHTTP frames │  server with │
+│ Hiddify) │                              │  streams body)   │  forwarded    │ XHTTP inbound│
 └──────────┘                              └──────────────────┘               └──────────────┘
 ```
 
@@ -100,46 +109,102 @@ The handler is written for sustained throughput:
 - [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel`
 - A Vercel account (Pro recommended for higher bandwidth and concurrent
   invocation limits).
+- A custom domain you control (recommended; needed if `*.vercel.app` is
+  blocked in your target region).
 
-### 2. Configure Environment Variable
+### 2. Set up DNS
+
+You need **two** DNS records:
+
+| Type   | Name      | Value                    | Purpose                                        |
+| ------ | --------- | ------------------------ | ---------------------------------------------- |
+| A      | `backend` | `<YOUR_SERVER_IP>`       | Resolved by Vercel only — points to your Xray  |
+| CNAME  | `relay`   | `cname.vercel-dns.com`   | Resolved by clients — points to Vercel         |
+
+> ⚠️ If you use Cloudflare, set **Proxy: OFF (DNS only)** for both records.
+> Orange-cloud proxying breaks Vercel's TLS handshake.
+
+> ⚠️ **Never put your server's raw IP behind the client-facing CNAME.**
+> The whole point of the relay is that your origin IP stays hidden from
+> clients. Only `backend.YOUR-DOMAIN` resolves to the real IP, and only
+> Vercel ever queries it.
+
+### 3. Configure Environment Variable
 
 In the Vercel Dashboard → your project → **Settings → Environment
 Variables**, add:
 
-| Name            | Example                         | Description                                          |
-| --------------- | ------------------------------- | ---------------------------------------------------- |
-| `TARGET_DOMAIN` | `https://xray.example.com:2096` | Full origin URL of your backend Xray XHTTP endpoint. |
+| Name            | Example                                | Description                                          |
+| --------------- | -------------------------------------- | ---------------------------------------------------- |
+| `TARGET_DOMAIN` | `http://backend.your-domain.com:2096`  | Full origin URL of your backend Xray XHTTP endpoint. |
 
 Notes:
 
+- **Use a domain, not a raw IP.** Vercel's Edge runtime rejects direct IP
+  access with `Direct IP access is not allowed` errors. Use the `backend`
+  subdomain you set up above.
 - Use `https://` if your backend terminates TLS, `http://` if plain.
-- Include a non-default port if needed.
+- Include the inbound port (e.g. `:2096`).
 - Trailing slashes are stripped automatically.
 
-### 3. Deploy
+### 4. Deploy
 
 ```bash
-git clone https://github.com/ramynn/vercel-xhttp-relay.git
-cd vercel-xhttp-relay
+git clone https://github.com/schmi7zz/eazyvercel.git
+cd eazyvercel
 
 vercel --prod
 ```
 
 After deployment Vercel gives you a URL like `your-app.vercel.app`.
 
+### 5. Add your custom domain
+
+In the Vercel Dashboard → your project → **Settings → Domains**:
+
+1. Click **Add**.
+2. Enter `relay.your-domain.com` (matches your CNAME from step 2).
+3. Wait 1–3 minutes for the Let's Encrypt certificate to be issued
+   (status will go from "Generating SSL Certificate" to "Valid
+   Configuration").
+
+### 6. Redeploy
+
+After setting `TARGET_DOMAIN`, redeploy so the new env value is loaded:
+
+```bash
+vercel --prod
+```
+
+### 7. Verify end-to-end
+
+```bash
+curl -v https://relay.your-domain.com/yourpath
+```
+
+Expected response:
+
+- TLS handshake succeeds with a valid Let's Encrypt cert
+- `HTTP/2 404` with `content-length: 0`
+- `server: Vercel` header
+
+That `404` is correct — Xray's XHTTP inbound deliberately returns a 404
+to non-VLESS requests so the endpoint looks like a generic HTTP server to
+probes.
+
 ---
 
 ## Client Configuration (VLESS / Xray with XHTTP)
 
-In your client config, point the **address** at your Vercel domain and set
-**SNI / Host** to a `vercel.com`-family hostname. The `id`, `path`, and
-inbound settings must match what your real Xray server expects — the relay
-is transport-agnostic and just forwards bytes.
+In your client config, point the **address** at your Vercel custom domain
+and set **SNI / Host** accordingly. The `id`, `path`, and inbound settings
+must match what your real Xray server expects — the relay is
+transport-agnostic and just forwards bytes.
 
 ### Example VLESS share link
 
 ```
-vless://UUID@vercel.com:443?encryption=none&security=tls&sni=vercel.com&type=xhttp&path=/yourpath&host=your-app.vercel.app#vercel-relay
+vless://UUID@relay.your-domain.com:443?encryption=none&security=tls&sni=relay.your-domain.com&fp=chrome&alpn=h2%2Chttp%2F1.1&type=xhttp&host=relay.your-domain.com&path=/yourpath&mode=auto#eazyvercel
 ```
 
 ### Example Xray client JSON (outbound)
@@ -150,7 +215,7 @@ vless://UUID@vercel.com:443?encryption=none&security=tls&sni=vercel.com&type=xht
   "settings": {
     "vnext": [
       {
-        "address": "vercel.com",
+        "address": "relay.your-domain.com",
         "port": 443,
         "users": [{ "id": "YOUR-UUID", "encryption": "none" }]
       }
@@ -160,26 +225,72 @@ vless://UUID@vercel.com:443?encryption=none&security=tls&sni=vercel.com&type=xht
     "network": "xhttp",
     "security": "tls",
     "tlsSettings": {
-      "serverName": "vercel.com",
-      "allowInsecure": false
+      "serverName": "relay.your-domain.com",
+      "allowInsecure": false,
+      "fingerprint": "chrome",
+      "alpn": ["h2", "http/1.1"]
     },
     "xhttpSettings": {
       "path": "/yourpath",
-      "host": "your-app.vercel.app",
+      "host": "relay.your-domain.com",
       "mode": "auto"
     }
   }
 }
 ```
 
+### Compatible clients
+
+XHTTP is a newer transport. Make sure your client supports it:
+
+| Client          | Platform                          | Minimum version |
+| --------------- | --------------------------------- | --------------- |
+| Hiddify Next    | Android / iOS / Win / Mac / Linux | ≥ 2.0           |
+| v2rayNG         | Android                           | ≥ 1.9.5         |
+| v2rayN          | Windows                           | ≥ 7.4           |
+| NekoBox         | Android                           | ≥ 1.3           |
+
+**Clients that do NOT support XHTTP** (will fail silently):
+NPV Tunnel, HTTP Injector, HTTP Custom.
+
 ### Tips
 
-- You can use **any Vercel-fronted hostname** for SNI as long as the TLS
-  handshake reaches Vercel. Custom domains pointed at Vercel work too.
 - The `path` and `id` (UUID) must match the **backend Xray** XHTTP inbound,
   not this relay.
-- If censorship targets `*.vercel.app` directly, attach a custom domain in
-  the Vercel dashboard and use that as both `address` and `sni`.
+- If censorship targets `*.vercel.app` directly, the custom domain step
+  above is mandatory.
+- For maximum survivability, register multiple custom domains and rotate
+  if any one gets blocked.
+
+---
+
+## Troubleshooting
+
+| Symptom                                              | Cause                                                                                  | Fix                                                                                                |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `308 Redirect` loop on curl                          | `TARGET_DOMAIN` points to your own Vercel domain instead of the backend                | Set `TARGET_DOMAIN` to `http://backend.YOUR-DOMAIN:2096`                                           |
+| `Direct IP access is not allowed in Vercel's Edge`   | Raw IP in `TARGET_DOMAIN`                                                              | Use a domain (your `backend` subdomain, or `<dashed-ip>.sslip.io` for quick testing)               |
+| `502` / `504` from Vercel                            | Backend not listening or unreachable                                                   | Check `ss -tlnp \| grep 2096` on server; verify firewall allows port 2096 from outside             |
+| `bind: address already in use` in Xray logs          | x-ui's subscription server is on the same port as your inbound                         | In x-ui Panel Settings → Subscription, move sub port off 2096 (e.g. 8443), restart panel           |
+| Client connects but no internet                      | Wrong UUID, path, or host header in client config                                      | Verify all match the inbound exactly                                                               |
+| Client can't connect, but `tcpdump` shows Vercel SYN | Client doesn't support XHTTP                                                           | Switch to Hiddify Next or v2rayNG ≥ 1.9.5                                                          |
+| Custom domain not reachable from target region       | Domain TLD is filtered                                                                 | Try `.com`, `.net`, `.de`, `.io`, `.dev` — avoid `.tk`, `.ml`, `.ga`, `.cf`                        |
+
+### Useful diagnostic commands (on the Xray server)
+
+```bash
+# What's listening on port 2096?
+ss -tlnp | grep 2096
+
+# Live incoming SYNs to 2096 (excludes keepalives)
+tcpdump -i any -n -l 'tcp port 2096 and tcp[tcpflags] & tcp-syn != 0 and not src host YOUR_SERVER_IP'
+
+# Live x-ui logs
+journalctl -u x-ui -f --no-pager
+
+# Live Vercel deployment logs
+vercel logs --follow
+```
 
 ---
 
@@ -208,3 +319,7 @@ vless://UUID@vercel.com:443?encryption=none&security=tls&sni=vercel.com&type=xht
 ## License
 
 MIT.
+
+---
+
+**EazyVercel** — by [Schmitz](https://t.me/schmi7zz) · Channel: [t.me/schmitzws](https://t.me/schmitzws)
