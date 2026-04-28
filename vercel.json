@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "name": "vercel-xhttp-relay",
+  "version": 3,
+  "name": "verCL",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ],
